@@ -50,7 +50,7 @@ Without a `start` step, give a time instead:
 |-----------|----------|-------------|
 | `mode`    | `report` | `start` saves the current time; `report` prints the timeline |
 | `since`   |          | Start of the timeline (`30m`, `2h`, `1d`, `"2024-05-01 09:00"`). Defaults to the `start` time, or `1h` |
-| `version` | `main`   | Branch, tag or commit of whatchanged to build |
+| `version` | `latest` | `latest` release, a release tag (`v0.1.0`), or a branch/commit to build from source |
 | `sudo`    | `true`   | Run with sudo when it works without a password, so root-only files can be read |
 | `summary` | `true`   | Write the timeline to the job summary |
 
@@ -64,9 +64,10 @@ Without a `start` step, give a time instead:
 ## Notes
 
 - Linux runners only.
-- whatchanged is built from source with `cargo` (Rust 1.85 or newer, which
-  GitHub-hosted Ubuntu runners have). The binary is cached per commit, so
-  only the first run builds it.
+- The action downloads a prebuilt static binary from the
+  [whatchanged releases](https://github.com/majidninja/whatchanged/releases)
+  and checks its sha256. For a branch or commit `version`, it builds from
+  source with `cargo` (Rust 1.85+). Either way the binary is cached.
 - Timestamps have minute precision, so changes made in the same minute as
   the `start` step can show up too.
 

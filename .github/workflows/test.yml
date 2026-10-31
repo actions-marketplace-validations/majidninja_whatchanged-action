@@ -6,7 +6,10 @@ on:
 
 jobs:
   timeline:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./
@@ -38,4 +41,15 @@ jobs:
         with:
           since: 1d
           sudo: 'false'
+      - run: test -s "${{ steps.wc.outputs.timeline }}"
+
+  from-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        id: wc
+        with:
+          version: main
+          since: 1d
       - run: test -s "${{ steps.wc.outputs.timeline }}"

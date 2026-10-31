@@ -15,9 +15,9 @@ inputs:
     required: false
     default: ''
   version:
-    description: 'Git ref (branch, tag or commit) of majidninja/whatchanged to build'
+    description: '"latest" (newest release), a release tag such as v0.1.0, or a branch/commit to build from source'
     required: false
-    default: 'main'
+    default: 'latest'
   sudo:
     description: 'Run with sudo (when it works without a password) so root-only files can be read'
     required: false
@@ -64,14 +64,30 @@ runs:
       shell: bash
       env:
         INPUT_VERSION: ${{ inputs.version }}
+        GH_TOKEN: ${{ github.token }}
       run: |
-        if [[ "$INPUT_VERSION" =~ ^[0-9a-f]{40}$ ]]; then
-          sha="$INPUT_VERSION"
+        repo=majidninja/whatchanged
+        ref="$INPUT_VERSION"
+        if [ "$ref" = latest ]; then
+          ref=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$repo/releases/latest" \
+                | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1) || true
+          [ -n "$ref" ] || ref=main
+        fi
+        if [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+          sha="$ref"
         else
-          sha=$(git ls-remote https://github.com/majidninja/whatchanged.git "$INPUT_VERSION" | head -1 | cut -f1)
+          sha=$(git ls-remote "https://github.com/$repo.git" "$ref" "$ref^{}" | tail -1 | cut -f1)
         fi
         [ -n "$sha" ] || { echo "::error::whatchanged-action: unknown version '$INPUT_VERSION'"; exit 1; }
+        case "$RUNNER_ARCH" in
+          X64) target=x86_64-unknown-linux-musl ;;
+          ARM64) target=aarch64-unknown-linux-musl ;;
+          *) target= ;;
+        esac
+        echo "ref=$ref" >> "$GITHUB_OUTPUT"
         echo "sha=$sha" >> "$GITHUB_OUTPUT"
+        echo "target=$target" >> "$GITHUB_OUTPUT"
+        echo "whatchanged: using $ref ($sha)"
 
     - name: Restore cached binary
       id: cache
@@ -81,13 +97,36 @@ runs:
         path: ~/.whatchanged-bin
         key: whatchanged-${{ runner.os }}-${{ runner.arch }}-${{ steps.ver.outputs.sha }}
 
+    - name: Download release binary
+      id: download
+      if: inputs.mode != 'start' && steps.cache.outputs.cache-hit != 'true' && steps.ver.outputs.target != ''
+      shell: bash
+      env:
+        REF: ${{ steps.ver.outputs.ref }}
+        TARGET: ${{ steps.ver.outputs.target }}
+      run: |
+        name="whatchanged-$REF-$TARGET"
+        url="https://github.com/majidninja/whatchanged/releases/download/$REF/$name.tar.gz"
+        tmp=$(mktemp -d)
+        cd "$tmp"
+        if curl -fsSLO "$url" && curl -fsSLO "$url.sha256"; then
+          sha256sum -c "$name.tar.gz.sha256"
+          tar -xzf "$name.tar.gz"
+          mkdir -p "$HOME/.whatchanged-bin/bin"
+          install "$name/whatchanged" "$HOME/.whatchanged-bin/bin/whatchanged"
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+          echo "whatchanged: downloaded $name"
+        else
+          echo "whatchanged: no release binary for $REF on $TARGET, building from source"
+        fi
+
     - name: Build whatchanged
-      if: inputs.mode != 'start' && steps.cache.outputs.cache-hit != 'true'
+      if: inputs.mode != 'start' && steps.cache.outputs.cache-hit != 'true' && steps.download.outputs.ok != 'true'
       shell: bash
       env:
         SHA: ${{ steps.ver.outputs.sha }}
       run: |
-        command -v cargo >/dev/null || { echo "::error::whatchanged-action needs cargo (Rust 1.85+) on the runner"; exit 1; }
+        command -v cargo >/dev/null || { echo "::error::whatchanged-action needs cargo (Rust 1.85+) to build $SHA from source"; exit 1; }
         cargo install --quiet --locked --git https://github.com/majidninja/whatchanged.git --rev "$SHA" --root "$HOME/.whatchanged-bin" whatchanged
 
     - name: Report
