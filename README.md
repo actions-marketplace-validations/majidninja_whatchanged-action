@@ -34,7 +34,7 @@ The job summary then shows something like:
 
 2026-10-31
   18:03  pkg     installed cowsay 3.03+dfsg2-8
-  18:03  config  /etc/environment edited
+  18:03  env     /etc/environment edited
 ```
 
 Without a `start` step, give a time instead:
