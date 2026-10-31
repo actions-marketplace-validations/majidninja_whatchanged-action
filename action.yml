@@ -1,0 +1,122 @@
+name: 'whatchanged timeline'
+description: 'Timeline of what changed on the runner: packages, /etc edits, systemd units, cron and shell rc files'
+author: 'majidninja'
+branding:
+  icon: 'clock'
+  color: 'blue'
+
+inputs:
+  mode:
+    description: '"start" remembers the current time for a later report; "report" prints the timeline'
+    required: false
+    default: 'report'
+  since:
+    description: 'Start of the timeline (any whatchanged --since value: 30m, 2h, 1d, "2024-05-01 09:00"). Defaults to the time saved by a "start" step, else 1h.'
+    required: false
+    default: ''
+  version:
+    description: 'Git ref (branch, tag or commit) of majidninja/whatchanged to build'
+    required: false
+    default: 'main'
+  sudo:
+    description: 'Run with sudo (when it works without a password) so root-only files can be read'
+    required: false
+    default: 'true'
+  summary:
+    description: 'Write the timeline to the job summary'
+    required: false
+    default: 'true'
+
+outputs:
+  timeline:
+    description: 'Path to a file with the timeline text'
+    value: ${{ steps.report.outputs.timeline }}
+  changes:
+    description: 'Number of timeline lines (0 when nothing changed)'
+    value: ${{ steps.report.outputs.changes }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Mark start time
+      if: inputs.mode == 'start'
+      shell: bash
+      run: |
+        echo "WHATCHANGED_SINCE=$(date '+%Y-%m-%d %H:%M')" >> "$GITHUB_ENV"
+        echo "whatchanged: timeline will start at $(date '+%Y-%m-%d %H:%M')"
+
+    - name: Check mode and platform
+      if: inputs.mode != 'start'
+      shell: bash
+      env:
+        INPUT_MODE: ${{ inputs.mode }}
+      run: |
+        if [ "$INPUT_MODE" != report ]; then
+          echo "::error::whatchanged-action: mode must be 'start' or 'report', got '$INPUT_MODE'"; exit 1
+        fi
+        if [ "$RUNNER_OS" != Linux ]; then
+          echo "::error::whatchanged-action only works on Linux runners"; exit 1
+        fi
+
+    - name: Resolve whatchanged version
+      id: ver
+      if: inputs.mode != 'start'
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+      run: |
+        if [[ "$INPUT_VERSION" =~ ^[0-9a-f]{40}$ ]]; then
+          sha="$INPUT_VERSION"
+        else
+          sha=$(git ls-remote https://github.com/majidninja/whatchanged.git "$INPUT_VERSION" | head -1 | cut -f1)
+        fi
+        [ -n "$sha" ] || { echo "::error::whatchanged-action: unknown version '$INPUT_VERSION'"; exit 1; }
+        echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+    - name: Restore cached binary
+      id: cache
+      if: inputs.mode != 'start'
+      uses: actions/cache@v4
+      with:
+        path: ~/.whatchanged-bin
+        key: whatchanged-${{ runner.os }}-${{ runner.arch }}-${{ steps.ver.outputs.sha }}
+
+    - name: Build whatchanged
+      if: inputs.mode != 'start' && steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        SHA: ${{ steps.ver.outputs.sha }}
+      run: |
+        command -v cargo >/dev/null || { echo "::error::whatchanged-action needs cargo (Rust 1.85+) on the runner"; exit 1; }
+        cargo install --quiet --locked --git https://github.com/majidninja/whatchanged.git --rev "$SHA" --root "$HOME/.whatchanged-bin" whatchanged
+
+    - name: Report
+      id: report
+      if: inputs.mode != 'start'
+      shell: bash
+      env:
+        INPUT_SINCE: ${{ inputs.since }}
+        INPUT_SUDO: ${{ inputs.sudo }}
+        INPUT_SUMMARY: ${{ inputs.summary }}
+      run: |
+        since="${INPUT_SINCE:-${WHATCHANGED_SINCE:-1h}}"
+        bin="$HOME/.whatchanged-bin/bin/whatchanged"
+        out="$RUNNER_TEMP/whatchanged.txt"
+        if [ "$INPUT_SUDO" = true ] && command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+          sudo "$bin" --since "$since" > "$out"
+        else
+          "$bin" --since "$since" > "$out"
+        fi
+        cat "$out"
+        changes=$(grep -cE '^ +[0-9]{2}:[0-9]{2} ' "$out" || true)
+        echo "timeline=$out" >> "$GITHUB_OUTPUT"
+        echo "changes=$changes" >> "$GITHUB_OUTPUT"
+        if [ "$INPUT_SUMMARY" = true ]; then
+          {
+            echo "### What changed on the runner since $since"
+            echo
+            echo '```'
+            cat "$out"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi

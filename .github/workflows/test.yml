@@ -1,0 +1,41 @@
+name: test
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  timeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          mode: start
+      - name: Change some things
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cowsay
+          echo "# test" | sudo tee -a /etc/environment
+      - uses: ./
+        id: wc
+      - name: Check the timeline
+        env:
+          TIMELINE: ${{ steps.wc.outputs.timeline }}
+          CHANGES: ${{ steps.wc.outputs.changes }}
+        run: |
+          echo "changes=$CHANGES"
+          grep -q cowsay "$TIMELINE"
+          grep -q /etc/environment "$TIMELINE"
+          [ "$CHANGES" -gt 0 ]
+
+  fixed-since:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        id: wc
+        with:
+          since: 1d
+          sudo: 'false'
+      - run: test -s "${{ steps.wc.outputs.timeline }}"
