@@ -1,5 +1,8 @@
 # whatchanged-action
 
+[![GitHub Marketplace](https://img.shields.io/badge/Marketplace-whatchanged--timeline-blue?logo=github)](https://github.com/marketplace/actions/whatchanged-timeline)
+[![test](https://github.com/majidninja/whatchanged-action/actions/workflows/test.yml/badge.svg)](https://github.com/majidninja/whatchanged-action/actions/workflows/test.yml)
+
 See what a CI job changed on its runner. This action runs
 [whatchanged](https://github.com/majidninja/whatchanged) and puts one timeline
 of installed packages, edited `/etc` files, systemd units, cron jobs and shell
@@ -27,15 +30,11 @@ steps:
   - uses: majidninja/whatchanged-action@v1
 ```
 
-The job summary then shows something like:
+The job summary then shows what the job changed. This is the real output
+from this repo's [test workflow](.github/workflows/test.yml), which installs
+`cowsay` and appends a line to `/etc/environment`:
 
-```
-### What changed on the runner since 2026-10-31 18:02
-
-2026-10-31
-  18:03  pkg     installed cowsay 3.03+dfsg2-8
-  18:03  env     /etc/environment edited
-```
+![Job summary: cowsay installed, /etc/environment edited](docs/summary.svg)
 
 Without a `start` step, give a time instead:
 
